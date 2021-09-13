@@ -379,7 +379,14 @@ class Notifier:
         stream_key: str,
         new_token: Union[int, RoomStreamToken],
         users: Optional[Collection[Union[str, UserID]]] = None,
-    ):
+    ) -> None:
+        """Notify application services of ephemeral event activity.
+
+        Args:
+            stream_key: The stream the event came from.
+            new_token: The value of the new stream token.
+            users: The users that should be informed of the new event.
+        """
         try:
             stream_token = None
             if isinstance(new_token, int):
@@ -406,6 +413,13 @@ class Notifier:
         """Used to inform listeners that something has happened event wise.
 
         Will wake up all listeners for the given users and rooms.
+
+        Args:
+            stream_key: The stream the event came from.
+            new_token: The value of the new stream token.
+            users: The users that should be informed of the new event.
+            rooms: A collection of room IDs for which each joined member will be
+                informed of the new event.
         """
         users = users or []
         rooms = rooms or []
