@@ -181,33 +181,56 @@ class ApplicationServicesHandler:
         stream_key: str,
         new_token: Optional[int],
         users: Optional[Collection[Union[str, UserID]]] = None,
-    ):
-        """This is called by the notifier in the background
-        when a ephemeral event handled by the homeserver.
+    ) -> None:
+        """
+        This is called by the notifier in the background when an ephemeral event is handled by
+        the homeserver.
 
-        This will determine which appservices
-        are interested in the event, and submit them.
-
-        Events will only be pushed to appservices
-        that have opted into ephemeral events
+        This will determine which appservices are interested in the event, and submit them.
 
         Args:
             stream_key: The stream the event came from.
-            new_token: The latest stream token
-            users: The user(s) involved with the event.
+
+                When `stream_key` is "typing_key", "receipt_key" or "presence_key", events
+                will only be pushed to appservices that have opted into ephemeral events.
+
+                When `stream_key` is "device_list_key", events will always be pushed to
+                appservices. In all cases, appservices will only receive ephemeral events
+                that fall within their registered user and room namespaces.
+
+                Any other value for `stream_key` will cause this function to return early.
+
+            new_token: The latest stream token.
+
+            users: The user(s) involved with the event, if any.
         """
         if not self.notify_appservices:
             return
 
-        if stream_key not in ("typing_key", "receipt_key", "presence_key"):
-            return
-
-        services = [
-            service
-            for service in self.store.get_app_services()
-            if service.supports_ephemeral
-        ]
-        if not services:
+        if stream_key in ("typing_key", "receipt_key", "presence_key"):
+            # Check whether there are any appservices which have registered to receive
+            # ephemeral events.
+            #
+            # Note that whether these events are actually relevant to these appservices
+            # is decided later on.
+            services = [
+                service
+                for service in self.store.get_app_services()
+                if service.supports_ephemeral
+            ]
+            if not services:
+                # Bail out early if none of the target appservices have explicitly registered
+                # to receive ephemeral events.
+                return
+        elif stream_key == "device_list_key":
+            # Appservices do not need to register explicit support for receiving device list
+            # updates.
+            #
+            # Note that whether these events are actually relevant to these appservices is
+            # decided later on.
+            services = self.store.get_app_services()
+        else:
+            # This stream_key is not supported.
             return
 
         # We only start a new background process if necessary rather than

@@ -385,12 +385,14 @@ class Notifier:
         Args:
             stream_key: The stream the event came from.
             new_token: The value of the new stream token.
-            users: The users that should be informed of the new event.
+            users: The users that should be informed of the new event, if any.
         """
         try:
+            # TODO: What is the point of this?
             stream_token = None
             if isinstance(new_token, int):
                 stream_token = new_token
+
             self.appservice_handler.notify_interested_services_ephemeral(
                 stream_key, stream_token, users or []
             )
