@@ -244,8 +244,8 @@ class AuthHandler(BaseHandler):
         self._failed_uia_attempts_ratelimiter = Ratelimiter(
             store=self.store,
             clock=self.clock,
-            rate_hz=self.hs.config.rc_login_failed_attempts.per_second,
-            burst_count=self.hs.config.rc_login_failed_attempts.burst_count,
+            rate_hz=self.hs.config.ratelimiting.rc_login_failed_attempts.per_second,
+            burst_count=self.hs.config.ratelimiting.rc_login_failed_attempts.burst_count,
         )
 
         # The number of seconds to keep a UI auth session active.
@@ -255,14 +255,14 @@ class AuthHandler(BaseHandler):
         self._failed_login_attempts_ratelimiter = Ratelimiter(
             store=self.store,
             clock=hs.get_clock(),
-            rate_hz=self.hs.config.rc_login_failed_attempts.per_second,
-            burst_count=self.hs.config.rc_login_failed_attempts.burst_count,
+            rate_hz=self.hs.config.ratelimiting.rc_login_failed_attempts.per_second,
+            burst_count=self.hs.config.ratelimiting.rc_login_failed_attempts.burst_count,
         )
 
         self._clock = self.hs.get_clock()
 
         # Expire old UI auth sessions after a period of time.
-        if hs.config.run_background_tasks:
+        if hs.config.worker.run_background_tasks:
             self._clock.looping_call(
                 run_as_background_process,
                 5 * 60 * 1000,
@@ -289,7 +289,7 @@ class AuthHandler(BaseHandler):
             hs.config.sso_account_deactivated_template
         )
 
-        self._server_name = hs.config.server_name
+        self._server_name = hs.config.server.server_name
 
         # cast to tuple for use with str.startswith
         self._whitelisted_sso_clients = tuple(hs.config.sso_client_whitelist)
@@ -627,23 +627,28 @@ class AuthHandler(BaseHandler):
 
     async def add_oob_auth(
         self, stagetype: str, authdict: Dict[str, Any], clientip: str
-    ) -> bool:
+    ) -> None:
         """
         Adds the result of out-of-band authentication into an existing auth
         session. Currently used for adding the result of fallback auth.
+
+        Raises:
+            LoginError if the stagetype is unknown or the session is missing.
+            LoginError is raised by check_auth if authentication fails.
         """
         if stagetype not in self.checkers:
-            raise LoginError(400, "", Codes.MISSING_PARAM)
-        if "session" not in authdict:
-            raise LoginError(400, "", Codes.MISSING_PARAM)
-
-        result = await self.checkers[stagetype].check_auth(authdict, clientip)
-        if result:
-            await self.store.mark_ui_auth_stage_complete(
-                authdict["session"], stagetype, result
+            raise LoginError(
+                400, f"Unknown UIA stage type: {stagetype}", Codes.INVALID_PARAM
             )
-            return True
-        return False
+        if "session" not in authdict:
+            raise LoginError(400, "Missing session ID", Codes.MISSING_PARAM)
+
+        # If authentication fails a LoginError is raised. Otherwise, store
+        # the successful result.
+        result = await self.checkers[stagetype].check_auth(authdict, clientip)
+        await self.store.mark_ui_auth_stage_complete(
+            authdict["session"], stagetype, result
+        )
 
     def get_session_id(self, clientdict: Dict[str, Any]) -> Optional[str]:
         """
@@ -744,7 +749,7 @@ class AuthHandler(BaseHandler):
                         "name": self.hs.config.user_consent_policy_name,
                         "url": "%s_matrix/consent?v=%s"
                         % (
-                            self.hs.config.public_baseurl,
+                            self.hs.config.server.public_baseurl,
                             self.hs.config.user_consent_version,
                         ),
                     },
@@ -1342,7 +1347,7 @@ class AuthHandler(BaseHandler):
         try:
             res = self.macaroon_gen.verify_short_term_login_token(login_token)
         except Exception:
-            raise AuthError(403, "Invalid token", errcode=Codes.FORBIDDEN)
+            raise AuthError(403, "Invalid login token", errcode=Codes.FORBIDDEN)
 
         await self.auth.check_auth_blocking(res.user_id)
         return res
@@ -1459,6 +1464,10 @@ class AuthHandler(BaseHandler):
         )
 
         await self.store.user_delete_threepid(user_id, medium, address)
+        if medium == "email":
+            await self.store.delete_pusher_by_app_id_pushkey_user_id(
+                app_id="m.email", pushkey=address, user_id=user_id
+            )
         return result
 
     async def hash(self, password: str) -> str:
@@ -1727,7 +1736,6 @@ class AuthHandler(BaseHandler):
 
 @attr.s(slots=True)
 class MacaroonGenerator:
-
     hs = attr.ib()
 
     def generate_guest_access_token(self, user_id: str) -> str:
@@ -1791,7 +1799,7 @@ class MacaroonGenerator:
 
     def _generate_base_macaroon(self, user_id: str) -> pymacaroons.Macaroon:
         macaroon = pymacaroons.Macaroon(
-            location=self.hs.config.server_name,
+            location=self.hs.config.server.server_name,
             identifier="key",
             key=self.hs.config.macaroon_secret_key,
         )

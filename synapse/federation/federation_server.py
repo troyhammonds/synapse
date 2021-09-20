@@ -110,6 +110,7 @@ class FederationServer(FederationBase):
         super().__init__(hs)
 
         self.handler = hs.get_federation_handler()
+        self._federation_event_handler = hs.get_federation_event_handler()
         self.state = hs.get_state_handler()
         self._event_auth_handler = hs.get_event_auth_handler()
 
@@ -793,7 +794,9 @@ class FederationServer(FederationBase):
 
         event = await self._check_sigs_and_hash(room_version, event)
 
-        return await self.handler.on_send_membership_event(origin, event)
+        return await self._federation_event_handler.on_send_membership_event(
+            origin, event
+        )
 
     async def on_event_auth(
         self, origin: str, room_id: str, event_id: str
@@ -1011,9 +1014,7 @@ class FederationServer(FederationBase):
             async with lock:
                 logger.info("handling received PDU: %s", event)
                 try:
-                    await self.handler.on_receive_pdu(
-                        origin, event, sent_to_us_directly=True
-                    )
+                    await self._federation_event_handler.on_receive_pdu(origin, event)
                 except FederationError as e:
                     # XXX: Ideally we'd inform the remote we failed to process
                     # the event, but we can't return an error in the transaction
@@ -1242,7 +1243,7 @@ class FederationHandlerRegistry:
         self._edu_type_to_instance[edu_type] = instance_names
 
     async def on_edu(self, edu_type: str, origin: str, content: dict) -> None:
-        if not self.config.use_presence and edu_type == EduTypes.Presence:
+        if not self.config.server.use_presence and edu_type == EduTypes.Presence:
             return
 
         # Check if we have a handler on this instance

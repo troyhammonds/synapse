@@ -516,7 +516,7 @@ class EventsBackgroundUpdatesStore(SQLBaseStore):
                 txn=txn,
                 table="event_forward_extremities",
                 column="event_id",
-                iterable=to_delete,
+                values=to_delete,
                 keyvalues={},
             )
 
@@ -546,7 +546,7 @@ class EventsBackgroundUpdatesStore(SQLBaseStore):
                 txn=txn,
                 table="_extremities_to_check",
                 column="event_id",
-                iterable=original_set,
+                values=original_set,
                 keyvalues={},
             )
 
