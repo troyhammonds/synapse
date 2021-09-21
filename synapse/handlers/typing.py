@@ -466,6 +466,12 @@ class TypingNotificationEventSource:
         Args:
             from_key: the stream position at which events should be fetched from
             service: The appservice which may be interested
+
+        Returns:
+            A two-tuple containing the following:
+                * A list of json dictionaries derived from typing events that the
+                  appservice may be interested in.
+                * The latest known serial.
         """
         with Measure(self.clock, "typing.get_new_events_as"):
             from_key = int(from_key)
@@ -482,7 +488,7 @@ class TypingNotificationEventSource:
 
                 events.append(self._make_event_for(room_id))
 
-            return (events, handler._latest_room_serial)
+            return events, handler._latest_room_serial
 
     async def get_new_events(
         self, from_key: int, room_ids: Iterable[str], **kwargs
@@ -500,7 +506,7 @@ class TypingNotificationEventSource:
 
                 events.append(self._make_event_for(room_id))
 
-            return (events, handler._latest_room_serial)
+            return events, handler._latest_room_serial
 
     def get_current_key(self) -> int:
         return self.get_typing_handler()._latest_room_serial

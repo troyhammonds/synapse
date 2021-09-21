@@ -414,7 +414,7 @@ class ApplicationServiceTransactionWorkerStore(
     async def set_type_stream_id_for_appservice(
         self, service: ApplicationService, type: str, pos: Optional[int]
     ) -> None:
-        if type not in ("read_receipt", "presence"):
+        if type not in ("read_receipt", "presence", "device_list"):
             raise ValueError(
                 "Expected type to be a valid application stream id type, got %s"
                 % (type,)

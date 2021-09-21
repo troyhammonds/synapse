@@ -1476,6 +1476,14 @@ def format_user_presence_state(
 
     The "user_id" is optional so that this function can be used to format presence
     updates for client /sync responses and for federation /send requests.
+
+    Example:
+        {
+            "presence": "online",
+            "user_id": "@alice:example.com",
+            "status_msg": "Hello world!",
+            "currently_active": True
+        }
     """
     content = {"presence": state.state}
     if include_user_id:

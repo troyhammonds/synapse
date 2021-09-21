@@ -33,7 +33,7 @@ from synapse.metrics.background_process_metrics import (
     wrap_as_background_process,
 )
 from synapse.storage.databases.main.directory import RoomAliasMapping
-from synapse.types import JsonDict, RoomAlias, RoomStreamToken, UserID
+from synapse.types import JsonDict, RoomAlias, RoomStreamToken, UserID, RoomID
 from synapse.util.metrics import Measure
 
 if TYPE_CHECKING:
@@ -181,6 +181,7 @@ class ApplicationServicesHandler:
         stream_key: str,
         new_token: Optional[int],
         users: Optional[Collection[Union[str, UserID]]] = None,
+        rooms: Optional[Collection[Union[str, RoomID]]] = None,
     ) -> None:
         """
         This is called by the notifier in the background when an ephemeral event is handled by
@@ -200,9 +201,26 @@ class ApplicationServicesHandler:
 
                 Any other value for `stream_key` will cause this function to return early.
 
-            new_token: The latest stream token.
+            new_token: The latest stream token. If None, typing events will be ignored.
 
-            users: The user(s) involved with the event, if any.
+            users: The users that should be informed of the new event, if any.
+
+            rooms: A collection of room IDs for which each joined member will be
+                informed of the new event.
+
+                An appservice will also be notified of the event if a room in this collection
+                overlap with one or more of its registered room namespaces.
+                TODO: We need to figure out the proper way to notify an appservice here.
+
+                1. Get the members of every room
+                    * Isn't this done for us somewhere?
+                2. for every appservice:
+                    2.1 See if those room members overlap with the appservice's User ID regex.
+                    2.2 See if any of the room IDs overlap with each appservice's Room ID regex.
+
+                If 2.1 or 2.2 are true, send the update to that appservice.
+
+                TODO: Have a look at all the places on_new_event is called with "device_list_key".
         """
         if not self.notify_appservices:
             return
@@ -236,7 +254,7 @@ class ApplicationServicesHandler:
         # We only start a new background process if necessary rather than
         # optimistically (to cut down on overhead).
         self._notify_interested_services_ephemeral(
-            services, stream_key, new_token, users or []
+            services, stream_key, new_token, users or [], rooms or []
         )
 
     @wrap_as_background_process("notify_interested_services_ephemeral")
@@ -246,6 +264,7 @@ class ApplicationServicesHandler:
         stream_key: str,
         new_token: Optional[int],
         users: Collection[Union[str, UserID]],
+        rooms: Collection[Union[str, RoomID]],
     ) -> None:
         logger.debug("Checking interested services for %s" % (stream_key,))
 
@@ -283,13 +302,13 @@ class ApplicationServicesHandler:
                         service, "presence", new_token
                     )
                 elif stream_key == "device_list_key":
-                    events = await self._handle_device_list_updates(service, users)
+                    events = await self._handle_device_list_updates(service, users, rooms)
                     if events:
                         self.scheduler.submit_ephemeral_events_for_as(service, events)
 
-                    # TODO: Are we doing this for device list updates?
+                    # Persist the latest handled stream token for this appservice
                     await self.store.set_type_stream_id_for_appservice(
-                        service, "presence", new_token
+                        service, "device_list", new_token
                     )
 
     async def _handle_typing(
@@ -307,7 +326,7 @@ class ApplicationServicesHandler:
 
         Returns:
             A list of JSON dictionaries containing data derived from the typing events that
-            should be sent to this appservice.
+            should be sent to the given application service.
         """
         typing_source = self.event_sources.sources["typing"]
         # Get the typing events from just before current
@@ -332,7 +351,7 @@ class ApplicationServicesHandler:
 
         Returns:
             A list of JSON dictionaries containing data derived from the typing events that
-            should be sent to this appservice.
+            should be sent to the given application service.
         """
         from_key = await self.store.get_type_stream_id_for_appservice(
             service, "read_receipt"
@@ -346,6 +365,18 @@ class ApplicationServicesHandler:
     async def _handle_presence(
         self, service: ApplicationService, users: Collection[Union[str, UserID]]
     ) -> List[JsonDict]:
+        """Given an application service and a list of users who should be receiving
+        presence updates, return a list of presence updates destined for the
+        application service.
+
+        Args:
+            service: The application service that ephemeral events are being sent to.
+            users: The users that should receive the presence update.
+
+        Returns:
+            A list of json dictionaries containing data derived from the presence events
+            that should be sent to the given application service.
+        """
         events: List[JsonDict] = []
         presence_source = self.event_sources.sources["presence"]
         from_key = await self.store.get_type_stream_id_for_appservice(

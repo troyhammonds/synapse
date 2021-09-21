@@ -44,7 +44,7 @@ from synapse.logging.opentracing import log_kv, start_active_span
 from synapse.logging.utils import log_function
 from synapse.metrics import LaterGauge
 from synapse.streams.config import PaginationConfig
-from synapse.types import PersistedEventPosition, RoomStreamToken, StreamToken, UserID
+from synapse.types import PersistedEventPosition, RoomStreamToken, StreamToken, UserID, RoomID
 from synapse.util.async_helpers import ObservableDeferred, timeout_deferred
 from synapse.util.metrics import Measure
 from synapse.visibility import filter_events_for_client
@@ -379,6 +379,7 @@ class Notifier:
         stream_key: str,
         new_token: Union[int, RoomStreamToken],
         users: Optional[Collection[Union[str, UserID]]] = None,
+        rooms: Optional[Collection[Union[str, RoomID]]] = None,
     ) -> None:
         """Notify application services of ephemeral event activity.
 
@@ -386,15 +387,19 @@ class Notifier:
             stream_key: The stream the event came from.
             new_token: The value of the new stream token.
             users: The users that should be informed of the new event, if any.
+            rooms: A collection of room IDs for which each joined member will be
+                informed of the new event.
         """
         try:
-            # TODO: What is the point of this?
+            # TODO: What is the point of this? Passing None to
+            # notify_interested_services_ephemeral will just clear out the last
+            # stream token for that appservice...
             stream_token = None
             if isinstance(new_token, int):
                 stream_token = new_token
 
             self.appservice_handler.notify_interested_services_ephemeral(
-                stream_key, stream_token, users or []
+                stream_key, stream_token, users, rooms
             )
         except Exception:
             logger.exception("Error notifying application services of event")
@@ -465,6 +470,7 @@ class Notifier:
                 stream_key,
                 new_token,
                 users,
+                rooms,
             )
 
     def on_new_replication_data(self) -> None:
