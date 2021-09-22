@@ -181,7 +181,6 @@ class ApplicationServicesHandler:
         stream_key: str,
         new_token: Optional[int],
         users: Optional[Collection[Union[str, UserID]]] = None,
-        rooms: Optional[Collection[Union[str, RoomID]]] = None,
     ) -> None:
         """
         This is called by the notifier in the background when an ephemeral event is handled by
@@ -254,7 +253,7 @@ class ApplicationServicesHandler:
         # We only start a new background process if necessary rather than
         # optimistically (to cut down on overhead).
         self._notify_interested_services_ephemeral(
-            services, stream_key, new_token, users or [], rooms or []
+            services, stream_key, new_token, users or []
         )
 
     @wrap_as_background_process("notify_interested_services_ephemeral")

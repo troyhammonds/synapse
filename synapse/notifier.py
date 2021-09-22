@@ -379,7 +379,6 @@ class Notifier:
         stream_key: str,
         new_token: Union[int, RoomStreamToken],
         users: Optional[Collection[Union[str, UserID]]] = None,
-        rooms: Optional[Collection[Union[str, RoomID]]] = None,
     ) -> None:
         """Notify application services of ephemeral event activity.
 
@@ -387,8 +386,6 @@ class Notifier:
             stream_key: The stream the event came from.
             new_token: The value of the new stream token.
             users: The users that should be informed of the new event, if any.
-            rooms: A collection of room IDs for which each joined member will be
-                informed of the new event.
         """
         try:
             # TODO: What is the point of this? Passing None to
@@ -399,7 +396,7 @@ class Notifier:
                 stream_token = new_token
 
             self.appservice_handler.notify_interested_services_ephemeral(
-                stream_key, stream_token, users, rooms
+                stream_key, stream_token, users
             )
         except Exception:
             logger.exception("Error notifying application services of event")
@@ -429,7 +426,6 @@ class Notifier:
                 informed of the new event.
         """
         users = users or []
-        rooms = rooms or []
 
         with Measure(self.clock, "on_new_event"):
             user_streams = set()
@@ -446,6 +442,8 @@ class Notifier:
                 if user_stream is not None:
                     user_streams.add(user_stream)
 
+            # For every user in every room in `rooms`, potentially add a user stream if that
+            # stream is not already set to be notified
             for room in rooms:
                 user_streams |= self.room_to_user_streams.get(room, set())
 
@@ -470,7 +468,6 @@ class Notifier:
                 stream_key,
                 new_token,
                 users,
-                rooms,
             )
 
     def on_new_replication_data(self) -> None:

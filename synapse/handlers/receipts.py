@@ -255,6 +255,10 @@ class ReceiptEventSource:
             from_key=from_key, to_key=to_key
         )
 
+        # TODO: This doesn't seem to honour an appservice's registration of room or
+        #   namespace aliases. For instance, if an appservice registered a room namespace
+        #   that matched this room, but it didn't have any members in the room, then that
+        #   appservice wouldn't receive the read receipt.
         # Then filter down to rooms that the AS can read
         events = []
         for room_id, event in rooms_to_events.items():
