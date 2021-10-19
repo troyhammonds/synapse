@@ -104,7 +104,7 @@ class PersistEventsStore:
         self._clock = hs.get_clock()
         self._instance_name = hs.get_instance_name()
 
-        self._ephemeral_messages_enabled = hs.config.enable_ephemeral_messages
+        self._ephemeral_messages_enabled = hs.config.server.enable_ephemeral_messages
         self.is_mine_id = hs.is_mine_id
 
         # Ideally we'd move these ID gens here, unfortunately some other ID
@@ -1312,16 +1312,6 @@ class PersistEventsStore:
                     logger.exception("")
                     raise
 
-                # update the stored internal_metadata to update the "outlier" flag.
-                # TODO: This is unused as of Synapse 1.31. Remove it once we are happy
-                #  to drop backwards-compatibility with 1.30.
-                metadata_json = json_encoder.encode(event.internal_metadata.get_dict())
-                sql = "UPDATE event_json SET internal_metadata = ? WHERE event_id = ?"
-                txn.execute(sql, (metadata_json, event.event_id))
-
-                sql = "UPDATE events SET internal_metadata = ?, outlier = ? WHERE event_id = ?"
-                txn.execute(sql, (metadata_json, False, event.event_id))
-
                 # Add an entry to the ex_outlier_stream table to replicate the
                 # change in outlier status to our workers.
                 stream_order = event.internal_metadata.stream_ordering
@@ -1366,19 +1356,6 @@ class PersistEventsStore:
             d.pop("redacted_because", None)
             return d
 
-        def get_internal_metadata(event):
-            im = event.internal_metadata.get_dict()
-
-            # temporary hack for database compatibility with Synapse 1.30 and earlier:
-            # store the `outlier` flag inside the internal_metadata json as well as in
-            # the `events` table, so that if anyone rolls back to an older Synapse,
-            # things keep working. This can be removed once we are happy to drop support
-            # for that
-            if event.internal_metadata.is_outlier():
-                im["outlier"] = True
-
-            return im
-
         self.db_pool.simple_insert_many_txn(
             txn,
             table="event_json",
@@ -1387,7 +1364,7 @@ class PersistEventsStore:
                     "event_id": event.event_id,
                     "room_id": event.room_id,
                     "internal_metadata": json_encoder.encode(
-                        get_internal_metadata(event)
+                        event.internal_metadata.get_dict()
                     ),
                     "json": json_encoder.encode(event_dict(event)),
                     "format_version": event.format_version,
@@ -1839,9 +1816,8 @@ class PersistEventsStore:
             retcol="creator",
             allow_none=True,
         )
-        if (
-            not room_version.msc2716_historical
-            or not self.hs.config.experimental.msc2716_enabled
+        if not room_version.msc2716_historical and (
+            not self.hs.config.experimental.msc2716_enabled
             or event.sender != room_creator
         ):
             return
@@ -1901,9 +1877,8 @@ class PersistEventsStore:
             retcol="creator",
             allow_none=True,
         )
-        if (
-            not room_version.msc2716_historical
-            or not self.hs.config.experimental.msc2716_enabled
+        if not room_version.msc2716_historical and (
+            not self.hs.config.experimental.msc2716_enabled
             or event.sender != room_creator
         ):
             return

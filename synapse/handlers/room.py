@@ -52,6 +52,7 @@ from synapse.api.errors import (
 )
 from synapse.api.filtering import Filter
 from synapse.api.room_versions import KNOWN_ROOM_VERSIONS, RoomVersion
+from synapse.event_auth import validate_event_for_room_version
 from synapse.events import EventBase
 from synapse.events.utils import copy_power_levels_contents
 from synapse.rest.admin._base import assert_user_is_admin
@@ -75,8 +76,6 @@ from synapse.util.caches.response_cache import ResponseCache
 from synapse.util.stringutils import parse_and_validate_server_name
 from synapse.visibility import filter_events_for_client
 
-from ._base import BaseHandler
-
 if TYPE_CHECKING:
     from synapse.server import HomeServer
 
@@ -87,15 +86,18 @@ id_server_scheme = "https://"
 FIVE_MINUTES_IN_MS = 5 * 60 * 1000
 
 
-class RoomCreationHandler(BaseHandler):
+class RoomCreationHandler:
     def __init__(self, hs: "HomeServer"):
-        super().__init__(hs)
-
+        self.store = hs.get_datastore()
+        self.auth = hs.get_auth()
+        self.clock = hs.get_clock()
+        self.hs = hs
         self.spam_checker = hs.get_spam_checker()
         self.event_creation_handler = hs.get_event_creation_handler()
         self.room_member_handler = hs.get_room_member_handler()
         self._event_auth_handler = hs.get_event_auth_handler()
         self.config = hs.config
+        self.request_ratelimiter = hs.get_request_ratelimiter()
 
         # Room state based off defined presets
         self._presets_dict: Dict[str, Dict[str, Any]] = {
@@ -161,7 +163,7 @@ class RoomCreationHandler(BaseHandler):
         Raises:
             ShadowBanError if the requester is shadow-banned.
         """
-        await self.ratelimit(requester)
+        await self.request_ratelimiter.ratelimit(requester)
 
         user_id = requester.user.to_string()
 
@@ -237,8 +239,9 @@ class RoomCreationHandler(BaseHandler):
                 },
             },
         )
-        old_room_version = await self.store.get_room_version_id(old_room_id)
-        await self._event_auth_handler.check_from_context(
+        old_room_version = await self.store.get_room_version(old_room_id)
+        validate_event_for_room_version(old_room_version, tombstone_event)
+        await self._event_auth_handler.check_auth_rules_from_context(
             old_room_version, tombstone_event, tombstone_context
         )
 
@@ -649,16 +652,24 @@ class RoomCreationHandler(BaseHandler):
             requester, config, is_requester_admin=is_requester_admin
         )
 
-        if not is_requester_admin and not await self.spam_checker.user_may_create_room(
-            user_id
+        invite_3pid_list = config.get("invite_3pid", [])
+        invite_list = config.get("invite", [])
+
+        if not is_requester_admin and not (
+            await self.spam_checker.user_may_create_room(user_id)
+            and await self.spam_checker.user_may_create_room_with_invites(
+                user_id,
+                invite_list,
+                invite_3pid_list,
+            )
         ):
             raise SynapseError(403, "You are not permitted to create rooms")
 
         if ratelimit:
-            await self.ratelimit(requester)
+            await self.request_ratelimiter.ratelimit(requester)
 
         room_version_id = config.get(
-            "room_version", self.config.default_room_version.identifier
+            "room_version", self.config.server.default_room_version.identifier
         )
 
         if not isinstance(room_version_id, str):
@@ -684,8 +695,6 @@ class RoomCreationHandler(BaseHandler):
             if mapping:
                 raise SynapseError(400, "Room alias already taken", Codes.ROOM_IN_USE)
 
-        invite_3pid_list = config.get("invite_3pid", [])
-        invite_list = config.get("invite", [])
         for i in invite_list:
             try:
                 uid = UserID.from_string(i)
@@ -852,6 +861,7 @@ class RoomCreationHandler(BaseHandler):
                     "invite",
                     ratelimit=False,
                     content=content,
+                    new_room=True,
                 )
 
         for invite_3pid in invite_3pid_list:
@@ -954,6 +964,7 @@ class RoomCreationHandler(BaseHandler):
             "join",
             ratelimit=ratelimit,
             content=creator_join_profile,
+            new_room=True,
         )
 
         # We treat the power levels override specially as this needs to be one
