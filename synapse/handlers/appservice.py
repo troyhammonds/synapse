@@ -231,6 +231,7 @@ class ApplicationServicesHandler:
         with Measure(self.clock, "notify_interested_services_ephemeral"):
             for service in services:
                 # Only handle typing if we have the latest token
+                events: Union[Set[JsonDict], List[JsonDict]]
                 if stream_key == "typing_key" and new_token is not None:
                     events = await self._handle_typing(service, new_token)
                     if events:
@@ -277,7 +278,7 @@ class ApplicationServicesHandler:
 
     async def _handle_presence(
         self, service: ApplicationService, users: Collection[Union[str, UserID]]
-    ) -> List[JsonDict]:
+    ) -> Set[JsonDict]:
         events: Set[JsonDict] = set()
         presence_source = self.event_sources.sources.presence
         from_key = await self.store.get_type_stream_id_for_appservice(
@@ -307,7 +308,7 @@ class ApplicationServicesHandler:
                 for event in presence_events
             )
 
-        return list(events)
+        return events
 
     async def query_user_exists(self, user_id: str) -> bool:
         """Check if any application service knows this user_id exists.
