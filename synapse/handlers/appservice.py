@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 import logging
-from typing import TYPE_CHECKING, Collection, Dict, Iterable, List, Optional, Union
+from typing import TYPE_CHECKING, Collection, Dict, Iterable, List, Optional, Set, Union
 
 from prometheus_client import Counter
 
@@ -278,7 +278,7 @@ class ApplicationServicesHandler:
     async def _handle_presence(
         self, service: ApplicationService, users: Collection[Union[str, UserID]]
     ) -> List[JsonDict]:
-        events: List[JsonDict] = []
+        events: Set[JsonDict] = set()
         presence_source = self.event_sources.sources.presence
         from_key = await self.store.get_type_stream_id_for_appservice(
             service, "presence"
@@ -296,7 +296,7 @@ class ApplicationServicesHandler:
                 from_key=from_key,
             )
             time_now = self.clock.time_msec()
-            events.extend(
+            events.update(
                 {
                     "type": "m.presence",
                     "sender": event.user_id,
@@ -307,7 +307,7 @@ class ApplicationServicesHandler:
                 for event in presence_events
             )
 
-        return events
+        return list(events)
 
     async def query_user_exists(self, user_id: str) -> bool:
         """Check if any application service knows this user_id exists.
